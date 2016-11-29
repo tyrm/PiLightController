@@ -178,11 +178,18 @@ class FrameBuffer:
 # Programs
 
 
+def thread_trigger(b):
+    logging.info("starting Trigger")
+    time.sleep(2)
+    logging.info("bang")
+    b.set()
+
+
 # Frame Maker
 # Builds a new frame and pushes into nextFrame buffer
-def thread_frame_maker(nf):
+def thread_frame_maker(b, nf):
     logging.info("starting FrameMaker")
-    time.sleep(2)
+    b.wait()
     nf.set(make_color_grid(8, 8, 255))
 
 
@@ -221,9 +228,12 @@ if __name__ == "__main__":
     # Initialize Devices
     device_manager = DeviceManager()
 
-    # Frame Buffer to pass frames between threads
+    # Frame Bufferd
     current_frame_buffer = FrameBuffer()
     next_frame_buffer = FrameBuffer()
+
+    # Events
+    bang = threading.Event()
 
     tlw = threading.Thread(name='LightWrite',
                            target=thread_light_write,
@@ -232,7 +242,12 @@ if __name__ == "__main__":
 
     tfm = threading.Thread(name='FrameMaker',
                            target=thread_frame_maker,
-                           args=(next_frame_buffer,))
+                           args=(bang, next_frame_buffer))
     tfm.start()
+
+    ttr = threading.Thread(name='Trigger',
+                           target=thread_trigger,
+                           args=(bang, ))
+    ttr.start()
 
 # Party !
