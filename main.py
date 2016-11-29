@@ -20,8 +20,8 @@ app_dir = os.path.split(os.path.abspath(__file__))[0]
 
 
 # Create a "color grid" array with optional fill
-def make_color_grid(x, y, fill=0):
-    return [[[fill for i in range(3)] for i in range(y)] for i in range(x)]
+def make_color_grid(x, y, r=0, g=0, b=0):
+    return [[[r, g, b] for i in range(y)] for i in range(x)]
 
 
 def map_int(v, fl, fh, tl, th):
