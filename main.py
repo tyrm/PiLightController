@@ -3,6 +3,7 @@
 import configparser
 import logging
 import os
+import random
 import threading
 import time
 import unicornhat as unicorn
@@ -107,6 +108,12 @@ class DevicePosition:
         self.w = w
         self.h = h
 
+    def get_last_position(self):
+        last_x = self.x + self.w - 1
+        last_y = self.y + self.h - 1
+
+        return [last_x, last_y]
+
     def is_inside(self, x, y):
         return (self.x <= x < self.x + self.w) and (self.y <= y < self.y + self.h)
 
@@ -121,6 +128,8 @@ class DeviceManager:
     def __init__(self):
         self.devices = {}
         self._devicesLock = threading.Lock()
+        self._currentLayout = []
+        self._layoutLock = threading.Lock()
 
         # Build Devices
         device_config = configparser.ConfigParser()
@@ -151,14 +160,39 @@ class DeviceManager:
 
     def add_device(self, d):
         with self._devicesLock:
+            logging.debug("adding device [{0}] to device manager".format(d.name, ))
             self.devices[d.name] = d
+        self.add_location(d.name, 0, 0)
+
+    def add_location(self, name, x, y):
+        with self._layoutLock:
+            logging.debug("adding device [{0}] to layout ".format(name, ))
+            w, h = self.get_device_size(name)
+            self._currentLayout.append(DevicePosition(name, x, y, w, h))
+
+    def get_device_size(self, name):
+        with self._devicesLock:
+            return self.devices[name].get_size()
+
+    def get_layout_size(self):
+        max_x = 0
+        max_y = 0
+        for position in self._currentLayout:
+            last_x, last_y = position.get_last_position()
+
+            if max_x < last_x + 1:
+                max_x = last_x + 1
+            if max_y < last_y + 1:
+                max_y = last_y + 1
+
+        return [max_x, max_y]
 
 
 # Thread Safe Buffer for Frames
 class FrameBuffer:
-    def __init__(self):
+    def __init__(self, x, y):
         self._bufferLock = threading.Lock()
-        self._buffer = make_color_grid(8, 8)
+        self._buffer = make_color_grid(x, y)
 
     def set(self, b):
         with self._bufferLock:
@@ -178,19 +212,31 @@ class FrameBuffer:
 # Programs
 
 
-def thread_trigger(b):
+def thread_trigger(bng):
     logging.info("starting Trigger")
-    time.sleep(2)
-    logging.info("bang")
-    b.set()
+
+    while True:
+        time.sleep(2)
+        logging.info("bang")
+        bng.set()
 
 
 # Frame Maker
 # Builds a new frame and pushes into nextFrame buffer
-def thread_frame_maker(b, nf):
+def thread_frame_maker(bng, nf, dm):
     logging.info("starting FrameMaker")
-    b.wait()
-    nf.set(make_color_grid(8, 8, 255))
+    size_x, size_y = dm.get_layout_size()
+
+    while True:
+        bng.wait()
+        logging.debug("bang")
+
+        r = random.randint(0, 255)
+        g = random.randint(0, 255)
+        b = random.randint(0, 255)
+
+        nf.set(make_color_grid(size_x, size_y, r, g, b))
+        bng.clear()
 
 
 # LightWrite
@@ -198,15 +244,12 @@ def thread_frame_maker(b, nf):
 def thread_light_write(cf, nf, dm):
     logging.info("starting LightWrite")
 
-    # List configured devices
-    for name in dm.devices:
-        logging.info("found device [{0}]".format(dm.devices[name], ))
-
     while True:
         current_frame = cf.get()
         next_frame = nf.get()
 
         if current_frame != next_frame:
+            logging.debug("bang")
             size_x = len(next_frame)
             size_y = len(next_frame[0])
 
@@ -229,8 +272,10 @@ if __name__ == "__main__":
     device_manager = DeviceManager()
 
     # Frame Bufferd
-    current_frame_buffer = FrameBuffer()
-    next_frame_buffer = FrameBuffer()
+    buff_init_x, buff_init_y = device_manager.get_layout_size()
+
+    current_frame_buffer = FrameBuffer(buff_init_x, buff_init_y)
+    next_frame_buffer = FrameBuffer(buff_init_x, buff_init_y)
 
     # Events
     bang = threading.Event()
@@ -242,12 +287,12 @@ if __name__ == "__main__":
 
     tfm = threading.Thread(name='FrameMaker',
                            target=thread_frame_maker,
-                           args=(bang, next_frame_buffer))
+                           args=(bang, next_frame_buffer, device_manager))
     tfm.start()
 
     ttr = threading.Thread(name='Trigger',
                            target=thread_trigger,
-                           args=(bang, ))
+                           args=(bang,))
     ttr.start()
 
 # Party !
