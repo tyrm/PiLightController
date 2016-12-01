@@ -3,13 +3,13 @@
 import configparser
 import logging
 import os
-import random
 import threading
 import time
 import unicornhat as unicorn
 
 # local libraries
 import util
+import lightprograms
 
 logging.basicConfig(level=logging.DEBUG,
                     format='%(levelname)8s (%(threadName)-10s) %(message)s',
@@ -199,33 +199,68 @@ class FrameBuffer:
         return [size_x, size_y]
 
 
+# Threadsafe Config
+class RunningConfig:
+    def __init__(self):
+        self.mode = "cross"
+        self.mode_lock = threading.Lock()
+
+        self.trigger_source = "timer"
+        self.trigger_timer_length = 0.5
+        self.trigger_lock = threading.Lock()
+
+    def get_mode(self):
+        with self.mode_lock:
+            return self.mode
+
+    def get_trigger_source(self):
+        with self.trigger_lock:
+            return self.trigger_source
+
+    def get_trigger_timer_length(self):
+        with self.trigger_lock:
+            return self.trigger_timer_length
+
+    def set_mode(self, m):
+        with self.mode_lock:
+            self.mode = m
+
+    def set_trigger_source(self, s):
+        with self.trigger_lock:
+            self.mode = s
+
+    def set_trigger_timer_length(self, l):
+        with self.trigger_lock:
+            self.trigger_timer_length = l
+
+
 # Threads
 
 
-def thread_trigger(bng):
+def thread_trigger(rc, bng):
     logging.info("starting Trigger")
 
     while True:
-        time.sleep(2)
-        logging.info("bang")
-        bng.set()
+        trigger_source = rc.get_trigger_source()
+        if trigger_source is "timer":
+            time.sleep(rc.get_trigger_timer_length())
+            bng.set()
 
 
 # Frame Maker
 # Builds a new frame and pushes into nextFrame buffer
-def thread_frame_maker(bng, nf, dm):
+def thread_frame_maker(rc, bng, nf, dm, prg):
     logging.info("starting FrameMaker")
-    size_x, size_y = dm.get_layout_size()
 
     while True:
         bng.wait()
-        logging.debug("bang")
+        size_x, size_y = dm.get_layout_size()
 
-        r = random.randint(0, 255)
-        g = random.randint(0, 255)
-        b = random.randint(0, 255)
+        mode = rc.get_mode()
 
-        nf.set(util.make_color_grid(size_x, size_y, r, g, b))
+        if mode is "cross":
+            nf.set(prg["cross"].get_next_frame(size_x, size_y))
+
         bng.clear()
 
 
@@ -239,7 +274,6 @@ def thread_light_write(cf, nf, dm):
         next_frame = nf.get()
 
         if current_frame != next_frame:
-            logging.debug("bang")
             size_x = len(next_frame)
             size_y = len(next_frame[0])
 
@@ -258,6 +292,8 @@ def thread_light_write(cf, nf, dm):
 
 
 if __name__ == "__main__":
+    running_config = RunningConfig()
+
     # Initialize Devices
     device_manager = DeviceManager()
 
@@ -266,6 +302,10 @@ if __name__ == "__main__":
 
     current_frame_buffer = FrameBuffer(buff_init_x, buff_init_y)
     next_frame_buffer = FrameBuffer(buff_init_x, buff_init_y)
+
+    # Programs
+    programs = dict()
+    programs["cross"] = lightprograms.Cross(buff_init_x, buff_init_y)
 
     # Events
     bang = threading.Event()
@@ -277,12 +317,12 @@ if __name__ == "__main__":
 
     tfm = threading.Thread(name='FrameMaker',
                            target=thread_frame_maker,
-                           args=(bang, next_frame_buffer, device_manager))
+                           args=(running_config, bang, next_frame_buffer, device_manager, programs))
     tfm.start()
 
     ttr = threading.Thread(name='Trigger',
                            target=thread_trigger,
-                           args=(bang,))
+                           args=(running_config, bang))
     ttr.start()
 
 # Party !
