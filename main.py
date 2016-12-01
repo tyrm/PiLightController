@@ -8,6 +8,9 @@ import threading
 import time
 import unicornhat as unicorn
 
+# local libraries
+import util
+
 logging.basicConfig(level=logging.DEBUG,
                     format='%(levelname)8s (%(threadName)-10s) %(message)s',
                     )
@@ -15,19 +18,6 @@ logging.basicConfig(level=logging.DEBUG,
 logging.info("starting")
 
 app_dir = os.path.split(os.path.abspath(__file__))[0]
-
-
-# Utility Functions
-
-
-# Create a "color grid" array with optional fill
-def make_color_grid(x, y, r=0, g=0, b=0):
-    return [[[r, g, b] for i in range(y)] for i in range(x)]
-
-
-def map_int(v, fl, fh, tl, th):
-    fromDistance = fh - fl
-    toDistance = th - tl
 
 
 # Devices
@@ -43,8 +33,8 @@ class DeviceObj:
         self.type = t
 
         # Build Light array
-        self._lights = make_color_grid(self.sizeX, self.sizeY)
-        self._showBuffer = make_color_grid(self.sizeX, self.sizeY)
+        self._lights = util.make_color_grid(self.sizeX, self.sizeY)
+        self._showBuffer = util.make_color_grid(self.sizeX, self.sizeY)
 
         # Store in Devices dictionary
         manager.add_device(self)
@@ -192,7 +182,7 @@ class DeviceManager:
 class FrameBuffer:
     def __init__(self, x, y):
         self._bufferLock = threading.Lock()
-        self._buffer = make_color_grid(x, y)
+        self._buffer = util.make_color_grid(x, y)
 
     def set(self, b):
         with self._bufferLock:
@@ -209,7 +199,7 @@ class FrameBuffer:
         return [size_x, size_y]
 
 
-# Programs
+# Threads
 
 
 def thread_trigger(bng):
@@ -235,7 +225,7 @@ def thread_frame_maker(bng, nf, dm):
         g = random.randint(0, 255)
         b = random.randint(0, 255)
 
-        nf.set(make_color_grid(size_x, size_y, r, g, b))
+        nf.set(util.make_color_grid(size_x, size_y, r, g, b))
         bng.clear()
 
 
