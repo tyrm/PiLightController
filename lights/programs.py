@@ -1,6 +1,6 @@
 from random import randint
 
-import util
+import lights.util as util
 
 
 class LightProgram:
@@ -19,7 +19,6 @@ class LightProgram:
 class LightPoint:
 
     def __init__(self, w, h):
-
 
         self.direction = randint(1, 4)
         if self.direction == 1:

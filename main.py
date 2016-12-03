@@ -5,11 +5,10 @@ import logging
 import os
 import threading
 import time
-import unicornhat as unicorn
 
-# local libraries
-import util
-import lightprograms
+import lights
+import lights.device_unicornhat as device_unicornhat
+import lights.programs as light_programs
 
 logging.basicConfig(level=logging.DEBUG,
                     format='%(levelname)8s (%(threadName)-10s) %(message)s',
@@ -18,76 +17,6 @@ logging.basicConfig(level=logging.DEBUG,
 logging.info("starting")
 
 app_dir = os.path.split(os.path.abspath(__file__))[0]
-
-
-# Devices
-
-
-# Base Device Object
-class DeviceObj:
-    def __init__(self, manager, name, t, x=1, y=1):
-        # Save Parameters
-        self.sizeX = x
-        self.sizeY = y
-        self.name = name
-        self.type = t
-
-        # Build Light array
-        self._lights = util.make_color_grid(self.sizeX, self.sizeY)
-        self._showBuffer = util.make_color_grid(self.sizeX, self.sizeY)
-
-        # Store in Devices dictionary
-        manager.add_device(self)
-
-        logging.debug("created device [{0} ({1}, {2})]".format(self.name, self.sizeX, self.sizeY))
-
-    def __str__(self):
-        return "{0} ({1}, {2}x{3})".format(self.name, self.type, self.sizeX, self.sizeY)
-
-    def get(self, x=0, y=0):
-        r = self._lights[x][y][0]
-        g = self._lights[x][y][1]
-        b = self._lights[x][y][2]
-        return [r, g, b]
-
-    def get_size(self):
-        return [self.sizeX, self.sizeY]
-
-    def set(self, r, g, b, x=0, y=0):
-        self._showBuffer[x][y][0] = r
-        self._showBuffer[x][y][1] = g
-        self._showBuffer[x][y][2] = b
-
-    def show(self):
-        self._lights = self._showBuffer
-
-
-# UnicornHat Object
-class UnicornHat(DeviceObj):
-    def __init__(self, manager, name, rot=0, bri=1):
-        width, height = unicorn.get_shape()
-        DeviceObj.__init__(self, manager, name, "unicornhat", width, height)
-
-        # Save Parameters
-        self.rotation = rot
-        self.brightness = bri
-
-        # Initialize Unicorn Hat
-        unicorn.set_layout(unicorn.HAT)
-        unicorn.rotation(rot)
-        unicorn.brightness(bri)
-
-    def set(self, r, g, b, x=0, y=0):
-        DeviceObj.set(self, r, g, b, x, y)
-
-        # Set Pixel
-        unicorn.set_pixel(x, y, r, g, b)
-
-    def show(self):
-        DeviceObj.show(self)
-
-        # Update Display
-        unicorn.show()
 
 
 class DevicePosition:
@@ -115,7 +44,7 @@ class DevicePosition:
 
 
 class DeviceManager:
-    def __init__(self):
+    def __init__(self, devices_file):
         self.devices = {}
         self._devicesLock = threading.Lock()
         self._currentLayout = []
@@ -123,7 +52,6 @@ class DeviceManager:
 
         # Build Devices
         device_config = configparser.ConfigParser()
-        devices_file = os.path.join(app_dir, 'config', 'devices.ini')
         device_config.read(devices_file)
 
         for d in device_config.sections():
@@ -141,7 +69,7 @@ class DeviceManager:
 
                     logging.debug(
                         "attempting to init Unicorn Hat [{0} bri:{1} rot:{2}]".format(d, brightness, rotation))
-                    UnicornHat(self, d, rotation, brightness)
+                    self.add_device(device_unicornhat.UnicornHat(d, rotation, brightness))
                 else:
                     logging.warning(
                         "device {0} has unsupported type: {1}. ignoring.".format(d, device_config[d]['type']))
@@ -178,25 +106,7 @@ class DeviceManager:
         return [max_x, max_y]
 
 
-# Thread Safe Buffer for Frames
-class FrameBuffer:
-    def __init__(self, x, y):
-        self._bufferLock = threading.Lock()
-        self._buffer = util.make_color_grid(x, y)
 
-    def set(self, b):
-        with self._bufferLock:
-            self._buffer = b
-
-    def get(self):
-        with self._bufferLock:
-            return self._buffer
-
-    def get_size(self):
-        size_x = len(self._buffer)
-        size_y = len(self._buffer[0])
-
-        return [size_x, size_y]
 
 
 # Threadsafe Config
@@ -206,7 +116,7 @@ class RunningConfig:
         self.mode_lock = threading.Lock()
 
         self.trigger_source = "timer"
-        self.trigger_timer_length = 0.5
+        self.trigger_timer_length = 0.03
         self.trigger_lock = threading.Lock()
 
     def get_mode(self):
@@ -295,17 +205,18 @@ if __name__ == "__main__":
     running_config = RunningConfig()
 
     # Initialize Devices
-    device_manager = DeviceManager()
+    devices_file = os.path.join(app_dir, 'config', 'devices.ini')
+    device_manager = DeviceManager(devices_file)
 
     # Frame Bufferd
     buff_init_x, buff_init_y = device_manager.get_layout_size()
 
-    current_frame_buffer = FrameBuffer(buff_init_x, buff_init_y)
-    next_frame_buffer = FrameBuffer(buff_init_x, buff_init_y)
+    current_frame_buffer = lights.FrameBuffer(buff_init_x, buff_init_y)
+    next_frame_buffer = lights.FrameBuffer(buff_init_x, buff_init_y)
 
     # Programs
     programs = dict()
-    programs["cross"] = lightprograms.Cross(buff_init_x, buff_init_y)
+    programs["cross"] = light_programs.Cross(buff_init_x, buff_init_y)
 
     # Events
     bang = threading.Event()
