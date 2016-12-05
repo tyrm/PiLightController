@@ -7,7 +7,8 @@ import threading
 import time
 
 import lights
-import lights.device_unicornhat as device_unicornhat
+from lights.device_unicornhat import UnicornHat
+from lights.device_osc_grid import OSCGrid
 import lights.programs as light_programs
 
 logging.basicConfig(level=logging.DEBUG,
@@ -44,15 +45,15 @@ class DevicePosition:
 
 
 class DeviceManager:
-    def __init__(self, devices_file):
+    def __init__(self, df):
         self.devices = {}
-        self._devicesLock = threading.Lock()
-        self._currentLayout = []
-        self._layoutLock = threading.Lock()
+        self.devices_lock = threading.Lock()
+        self.layout = []
+        self.layout_lock = threading.Lock()
 
         # Build Devices
         device_config = configparser.ConfigParser()
-        device_config.read(devices_file)
+        device_config.read(df)
 
         for d in device_config.sections():
             if 'type' in device_config[d]:
@@ -68,8 +69,21 @@ class DeviceManager:
                         brightness = 1
 
                     logging.debug(
-                        "attempting to init Unicorn Hat [{0} bri:{1} rot:{2}]".format(d, brightness, rotation))
-                    self.add_device(device_unicornhat.UnicornHat(d, rotation, brightness))
+                        "attempting to init Unicorn Hat [{0} 8x8 bri:{1} rot:{2}]".format(d, brightness, rotation))
+                    self.add_device(UnicornHat(d, rotation, brightness))
+                elif device_config[d]['type'] == 'osc_grid':
+                    host = device_config[d]['host']
+                    if 'port' in device_config[d]:
+                        port = int(device_config[d]['port'])
+                    else:
+                        port = 5005
+                    width = int(device_config[d]['width'])
+                    height = int(device_config[d]['height'])
+
+                    logging.debug(
+                        "attempting to init OSC Grid [{0} {1}x{2} host:{3} port:{4}]".format(d, width, height, host,
+                                                                                             port))
+                    self.add_device(OSCGrid(d, width, height, host, port))
                 else:
                     logging.warning(
                         "device {0} has unsupported type: {1}. ignoring.".format(d, device_config[d]['type']))
@@ -77,25 +91,35 @@ class DeviceManager:
                 logging.warning("device {0} doesn't have a type. ignoring.".format(d))
 
     def add_device(self, d):
-        with self._devicesLock:
+        with self.devices_lock:
             logging.debug("adding device [{0}] to device manager".format(d.name, ))
             self.devices[d.name] = d
         self.add_location(d.name, 0, 0)
 
     def add_location(self, name, x, y):
-        with self._layoutLock:
+        with self.layout_lock:
             logging.debug("adding device [{0}] to layout ".format(name, ))
             w, h = self.get_device_size(name)
-            self._currentLayout.append(DevicePosition(name, x, y, w, h))
+            self.layout.append(DevicePosition(name, x, y, w, h))
 
     def get_device_size(self, name):
-        with self._devicesLock:
+        with self.devices_lock:
             return self.devices[name].get_size()
+
+    def get_devices_at(self, x, y):
+        device_list = []
+
+        with self.layout_lock:
+            for device in self.layout:
+                if device.is_inside(x, y):
+                    device_list.append(device)
+
+        return device_list
 
     def get_layout_size(self):
         max_x = 0
         max_y = 0
-        for position in self._currentLayout:
+        for position in self.layout:
             last_x, last_y = position.get_last_position()
 
             if max_x < last_x + 1:
@@ -105,8 +129,10 @@ class DeviceManager:
 
         return [max_x, max_y]
 
-
-
+    def show_all(self):
+        with self.devices_lock:
+            for device in self.devices:
+                self.devices[device].show()
 
 
 # Threadsafe Config
@@ -194,9 +220,16 @@ def thread_light_write(cf, nf, dm):
                         g = next_frame[x][y][1]
                         b = next_frame[x][y][2]
 
-                        dm.devices["test"].set(r, g, b, x, y)
+                        update_list = dm.get_devices_at(x, y)
 
-            dm.devices["test"].show()
+                        for device in update_list:
+                            offset_x = device.x
+                            offset_y = device.y
+
+                            dm.devices[device.name].set(r, g, b, x - offset_x, y - offset_y)
+
+
+            dm.show_all()
 
             cf.set(next_frame)
 

@@ -1,6 +1,8 @@
+#!/usr/bin/env python3
+
 from random import randint
 
-import lights.util as util
+from lights import make_color_grid
 
 
 class LightProgram:
@@ -10,14 +12,13 @@ class LightProgram:
         self.last_h = h
 
     def get_next_frame(self, w, h):
-        next_frame = util.make_color_grid(w, h)
+        next_frame = make_color_grid(w, h)
 
         self.current_frame = next_frame
         return self.current_frame
 
 
 class LightPoint:
-
     def __init__(self, w, h):
 
         self.direction = randint(1, 4)
@@ -40,7 +41,6 @@ class LightPoint:
 
 
 class Cross(LightProgram):
-
     def __init__(self, w, h):
         LightProgram.__init__(self, w, h)
         self.points = []
@@ -48,7 +48,7 @@ class Cross(LightProgram):
 
     def get_next_frame(self, w, h):
 
-        next_frame = util.make_color_grid(w, h)
+        next_frame = make_color_grid(w, h)
 
         for point in self.points:
             if point.direction == 1:
