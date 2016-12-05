@@ -90,3 +90,5 @@ ENV/
 
 # JetBrains project settings
 .idea/
+
+lights
